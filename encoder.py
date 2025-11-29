@@ -1,7 +1,30 @@
+import time
 import numpy as np
 from PIL import Image
 import os
-from functions import funcs
+import functions as F
+
+def _to_ints(*vals):
+    return [int(np.int32(v)) for v in vals]
+
+def _make_unified(funcs_dict, weights=None):
+    if weights is None:
+        weights = {k: 1.0 for k in funcs_dict.keys()}
+    def unified(a, b, c):
+        a, b, c = _to_ints(a, b, c)
+        candidates = {}
+        for name, fn in funcs_dict.items():
+            try:
+                p = int(fn(a, b, c))
+            except Exception:
+                p = 0
+            candidates[name] = int(np.clip(p, 0, 255))
+        total_w = sum(weights.get(k, 0.0) for k in candidates.keys())
+        if total_w <= 0:
+            return candidates.get("med", 0)
+        weighted = sum(weights.get(k, 0.0) * v for k, v in candidates.items()) / total_w
+        return int(np.clip(int(round(weighted)), 0, 255))
+    return unified
 
 def apply_predictor(img: np.ndarray, func) -> np.ndarray:
     h, w = img.shape
@@ -29,45 +52,28 @@ def _safe_preview(residual: np.ndarray) -> np.ndarray:
     scaled = (r * 255) // maxv
     return scaled.astype(np.uint8)
 
-def predictor(image_path: str):
+def predictor(image_path: str, weights: dict | None = None):
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"File not found: {image_path}")
-
     img = Image.open(image_path).convert("L")
     arr = np.array(img, dtype=np.uint8)
-
-    best_entropy_name = None
-    best_entropy_val = float("inf")
-    best_entropy_output = None
-
-    best_bpp_name = None
-    best_bpp_val = float("inf")
-    best_bpp_output = None
-
-    for name, f in funcs.items():
-        pred = apply_predictor(arr, f)
-        e = entropy(pred)
-        bpp = e / 8.0
-
-        if e < best_entropy_val:
-            best_entropy_val = e
-            best_entropy_output = pred.copy()
-            best_entropy_name = name
-
-        if bpp < best_bpp_val:
-            best_bpp_val = bpp
-            best_bpp_output = pred.copy()
-            best_bpp_name = name
-
-    np.savez_compressed(f"residual_entropy_{best_entropy_name}.npz", best_entropy_output.astype(np.int16))
-    np.savez_compressed(f"residual_bpp_{best_bpp_name}.npz", best_bpp_output.astype(np.int16))
-
-    entropy_preview = _safe_preview(best_entropy_output)
-    bpp_preview = _safe_preview(best_bpp_output)
-    Image.fromarray(entropy_preview).save(f"preview_entropy_{best_entropy_name}.png")
-    Image.fromarray(bpp_preview).save(f"preview_bpp_{best_bpp_name}.png")
-
+    funcs_dict = getattr(F, "funcs", {})
+    unified_fn = getattr(F, "unified_predictor", None)
+    if unified_fn is None:
+        unified_fn = _make_unified(funcs_dict, weights)
+    start = time.perf_counter()
+    pred = apply_predictor(arr, unified_fn)
+    run_time = time.perf_counter() - start
+    e = entropy(pred)
+    bpp = e / 8.0
+    np.savez_compressed(f"residual_unified.npz", pred.astype(np.int16))
+    preview = _safe_preview(pred)
+    Image.fromarray(preview).save(f"preview_unified.png")
     return {
-        "best_entropy": (best_entropy_name, best_entropy_val, f"residual_entropy_{best_entropy_name}.npz"),
-        "best_bpp": (best_bpp_name, best_bpp_val, f"residual_bpp_{best_bpp_name}.npz")
+        "method": "unified",
+        "entropy": float(round(e, 6)),
+        "bpp": float(round(bpp, 6)),
+        "residual": f"residual_unified.npz",
+        "preview": f"preview_unified.png",
+        "runtime_s": float(round(run_time, 6))
     }

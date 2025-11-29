@@ -5,7 +5,27 @@ import math
 from encoder import predictor
 from decoder import reconstruct
 
-path = input("Locate the picture or residual (URL/Address):\n").strip()
+batch_dir = "/home/matt/Documents/HomeWorks/AMS/HW2/Images"
+batch_files = [
+    "Baboon.tif", "Cells.png", "CLIC_2025_2.png", "Kodak_23.png", "MRI_1.tif", "Peppers.bmp",
+    "Bridge.tif", "CLIC_2025_1.png", "Kodak_01.png", "Livingroom.tif", "MRI_2.tif", "Retina.tif"
+]
+
+path = input("Locate the picture or residual (URL/Address) or type 'batch':\n").strip()
+if path.lower() == "batch":
+    for fname in batch_files:
+        p = os.path.join(batch_dir, fname)
+        if not os.path.isfile(p):
+            print("Missing:", p)
+            continue
+        try:
+            print("Processing:", fname)
+            predictor(p)
+            print("Done:", fname)
+        except Exception as e:
+            print("Error processing", fname, ":", e)
+    raise SystemExit
+
 if not os.path.exists(path):
     print("File not found:", path)
     raise SystemExit
@@ -38,13 +58,21 @@ if operation == 1:
     if not is_image:
         print("Encode requires an image file.")
         raise SystemExit
-    predictor(path)
+    try:
+        res = predictor(path)
+        print("Predictor result:", res)
+    except Exception as e:
+        print("Error during predictor:", e)
 
 elif operation == 2:
     if not is_npz:
         print("Decode requires a .npz residual file.")
         raise SystemExit
-    reconstruct(path)
+    try:
+        out = reconstruct(path)
+        print("Reconstructed saved to:", out)
+    except Exception as e:
+        print("Error during reconstruct:", e)
 
 elif operation == 3:
     if not is_image:

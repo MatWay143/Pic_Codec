@@ -2,7 +2,7 @@ import os
 import re
 import numpy as np
 from PIL import Image
-from functions import funcs
+import functions as F
 
 def _to_int32_array(maybe_obj):
     arr = np.asarray(maybe_obj)
@@ -16,6 +16,27 @@ def _to_int32_array(maybe_obj):
                 raise ValueError("Residual array has object dtype and cannot be converted automatically.")
     return arr.astype(np.int32)
 
+def _make_unified(funcs_dict, weights=None):
+    if weights is None:
+        weights = {k: 1.0 for k in funcs_dict.keys()}
+    def _to_ints(*vals):
+        return [int(np.int32(v)) for v in vals]
+    def unified(a, b, c):
+        a, b, c = _to_ints(a, b, c)
+        candidates = {}
+        for name, fn in funcs_dict.items():
+            try:
+                p = int(fn(a, b, c))
+            except Exception:
+                p = 0
+            candidates[name] = int(np.clip(p, 0, 255))
+        total_w = sum(weights.get(k, 0.0) for k in candidates.keys())
+        if total_w <= 0:
+            return candidates.get("med", 0)
+        weighted = sum(weights.get(k, 0.0) * v for k, v in candidates.items()) / total_w
+        return int(np.clip(int(round(weighted)), 0, 255))
+    return unified
+
 def reconstruct(residual_path: str) -> str:
     if not os.path.isfile(residual_path):
         raise FileNotFoundError(f"File not found: {residual_path}")
@@ -27,12 +48,15 @@ def reconstruct(residual_path: str) -> str:
     raw = data[key]
     residual = _to_int32_array(raw)
     match = re.search(r'_([A-Za-z0-9_-]+)\.npz$', os.path.basename(residual_path))
-    if not match:
-        raise ValueError("Cannot detect predictor name from filename. Expected pattern _<predictor>.npz")
-    predictor_name = match.group(1)
-    f = funcs.get(predictor_name)
+    predictor_name = None
+    f = None
+    if match:
+        predictor_name = match.group(1)
+        f = F.funcs.get(predictor_name)
     if f is None:
-        raise KeyError(f"Predictor '{predictor_name}' not found in funcs")
+        f = getattr(F, "unified_predictor", None)
+    if f is None:
+        f = _make_unified(getattr(F, "funcs", {}))
     if residual.ndim != 2:
         raise ValueError("Residual array must be 2D (height x width)")
     h, w = residual.shape
@@ -45,6 +69,7 @@ def reconstruct(residual_path: str) -> str:
             p = int(f(a, b, c))
             out[i, j] = np.clip(int(residual[i, j]) + p, 0, 255)
     out_u8 = out.astype(np.uint8)
-    save_path = f"decoded_{predictor_name}.png"
+    name = predictor_name if predictor_name is not None else "unified"
+    save_path = f"decoded_{name}.png"
     Image.fromarray(out_u8, mode="L").save(save_path)
     return save_path

@@ -1,152 +1,100 @@
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ExifTags
 import numpy as np
 import os
-import math
-from encoder import predictor
-from decoder import reconstruct
+from encode import enc_func
+from decode import dec_func
 
-batch_dir = "/home/matt/Documents/HomeWorks/AMS/HW2/Images"
-batch_files = [
-    "Baboon.tif", "Cells.png", "CLIC_2025_2.png", "Kodak_23.png", "MRI_1.tif", "Peppers.bmp",
-    "Bridge.tif", "CLIC_2025_1.png", "Kodak_01.png", "Livingroom.tif", "MRI_2.tif", "Retina.tif"
-]
+def analyze_image(image_path):
+    if not os.path.exists(image_path):
+        print("No file exists with this address.")
+        return
 
-path = input("Locate the picture or residual (URL/Address) or type 'batch':\n").strip()
-if path.lower() == "batch":
-    for fname in batch_files:
-        p = os.path.join(batch_dir, fname)
-        if not os.path.isfile(p):
-            print("Missing:", p)
-            continue
-        try:
-            print("Processing:", fname)
-            predictor(p)
-            print("Done:", fname)
-        except Exception as e:
-            print("Error processing", fname, ":", e)
-    raise SystemExit
+    img = Image.open(image_path)
 
-if not os.path.exists(path):
-    print("File not found:", path)
-    raise SystemExit
+    print("====== Image General Info ======")
+    print(f"File path        : {image_path}")
+    print(f"File format      : {img.format}")
+    print(f"File size (KB)   : {os.path.getsize(image_path) / 1024:.2f}")
 
-ext = os.path.splitext(path)[1].lower()
-is_image = ext in (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
-is_npz = ext == ".npz"
+    print("\n====== Image Geometry ======")
+    print(f"Width            : {img.width}")
+    print(f"Height           : {img.height}")
+    print(f"Resolution       : {img.size}")
 
-image = None
-if is_image:
-    try:
-        image = Image.open(path)
-    except UnidentifiedImageError:
-        print("Cannot identify image file:", path)
-        raise SystemExit
+    print("\n====== Pixel & Color Info ======")
+    print(f"Color mode       : {img.mode}")
 
-while True:
-    method = input("Specify the operation:\n1. <E>ncode\n2. <D>ecode\n3. <P>roperties\n").strip()
-    if method.lower() in ('e', '1'):
-        operation = 1
-        break
-    elif method.lower() in ('d', '2'):
-        operation = 2
-        break
-    elif method.lower() in ('p', '3'):
-        operation = 3
-        break
-
-if operation == 1:
-    if not is_image:
-        print("Encode requires an image file.")
-        raise SystemExit
-    try:
-        res = predictor(path)
-        print("Predictor result:", res)
-    except Exception as e:
-        print("Error during predictor:", e)
-
-elif operation == 2:
-    if not is_npz:
-        print("Decode requires a .npz residual file.")
-        raise SystemExit
-    try:
-        out = reconstruct(path)
-        print("Reconstructed saved to:", out)
-    except Exception as e:
-        print("Error during reconstruct:", e)
-
-elif operation == 3:
-    if not is_image:
-        print("Properties require an image file.")
-        raise SystemExit
-
-    file_w, file_h = image.size
-    file_m = image.mode
-    file_f = image.format
-    file_c = len(file_m)
-    file_d = file_w * file_h
-    file_s = os.path.getsize(path) * 8
-
-    arr = np.array(image.convert("L"))
-    hist, _ = np.histogram(arr, bins=256, range=(0,256))
-    probs = hist / hist.sum()
-    entropy_val = float(-np.sum([p * math.log2(p) for p in probs if p > 0]))
-    mean_val = float(np.mean(arr))
-    std_val = float(np.std(arr))
-
-    if file_m in ["L", "P"]:
-        bit_depth = 8
-    elif file_m in ["RGB", "RGBA", "CMYK"]:
-        bit_depth = 8
-    elif file_m.startswith("I;16"):
-        bit_depth = 16
+    if img.mode == "RGB":
+        channels = ["Red", "Green", "Blue"]
+    elif img.mode == "RGBA":
+        channels = ["Red", "Green", "Blue", "Alpha"]
+    elif img.mode == "L":
+        channels = ["Grayscale"]
+    elif img.mode == "CMYK":
+        channels = ["Cyan", "Magenta", "Yellow", "Black"]
     else:
-        bit_depth = 8
+        channels = list(img.getbands())
 
-    file_bpp = file_s / (file_d * file_c) if file_d > 0 else 0
-    file_det = {
-        "Width": file_w,
-        "Height": file_h,
-        "Mode": file_m,
-        "Format": file_f,
-        "Channels": file_c,
-        "Pixels": file_d,
-        "Size (bits)": file_s,
-        "Entropy": entropy_val,
-        "Bit Depth": bit_depth,
-        "Bits Per Pixel": file_bpp
-    }
+    print(f"Number of channels: {len(channels)}")
+    print(f"Channel types    : {channels}")
 
-    print("\nFile properties:")
-    for k, v in file_det.items():
-        print(f"{k:<15}: {v}")
-    print()
+    img_np = np.array(img)
 
-    check_1 = input("Display the picture? 1. <Y>es  2. <N>o\n").strip()
-    if check_1.lower() in ('y', '1'):
-        try:
-            image.show()
-        except Exception as e:
-            print("Cannot show image:", e)
+    print("\n====== Numerical Info ======")
+    print(f"Numpy shape      : {img_np.shape}")
+    print(f"Data type        : {img_np.dtype}")
+    print(f"Bit depth        : {img_np.dtype.itemsize * 8} bits")
 
-    check_2 = input("Display pixels value matrix (10x10 sample)? 1. <Y>es  2. <N>o\n").strip()
-    if check_2.lower() in ('y', '1'):
-        sample_h = min(10, image.height)
-        sample_w = min(10, image.width)
-        channels = list(image.mode)
+    print("\n====== Pixel Statistics ======")
+    print(f"Min pixel value  : {img_np.min()}")
+    print(f"Max pixel value  : {img_np.max()}")
+    print(f"Mean pixel value : {img_np.mean():.2f}")
 
-        print(f"{'x':<5}|{'y':<5}|", end="")
-        for ch in channels:
-            print(f"{ch:<5}|", end="")
-        print()
-        print("=" * ((len(channels) + 2) * 6))
+    print("\n====== EXIF Metadata ======")
+    exif_data = img._getexif()
+    if exif_data:
+        for tag_id, value in exif_data.items():
+            tag = ExifTags.TAGS.get(tag_id, tag_id)
+            print(f"{tag:25}: {value}")
+    else:
+        print("No EXIF metadata found.")
 
-        for y in range(sample_h):
-            for x in range(sample_w):
-                pixel = image.getpixel((x, y))
-                print(f"{x+1:<5}|{y+1:<5}|", end="")
-                if isinstance(pixel, tuple):
-                    for val in pixel:
-                        print(f"{val:<5}|", end="")
-                else:
-                    print(f"{pixel:<5}|", end="")
-                print()
+    print("\n✅ Analysis completed.")
+
+def analyze_image_main(image_path):
+    img = Image.open(image_path)
+    img_np = np.array(img)
+    main_properties["width"] = img.width
+    main_properties["height"] = img.height
+    if img.mode == "RGB":
+        channels = ["Red", "Green", "Blue"]
+    elif img.mode == "RGBA":
+        channels = ["Red", "Green", "Blue", "Alpha"]
+    elif img.mode == "L":
+        channels = ["Grayscale"]
+    elif img.mode == "CMYK":
+        channels = ["Cyan", "Magenta", "Yellow", "Black"]
+    else:
+        channels = list(img.getbands())
+    main_properties["num_of_channels"] = len(channels)
+    main_properties["type_of_channels"] = channels
+    main_properties["depth_per_channel"] = img_np.dtype.itemsize * 8
+
+if __name__ == "__main__":
+    cycle = True
+    main_properties = {"width": "", "height": "", "num_of_channels": "", "type_of_channels": "", "depth_per_channel": ""}
+    while cycle:
+        image_path = input("Specify the address/ URL of the image:\n").strip()
+        operation = input("Choose an operation:\n1)Encode 2)Decode 3)Details 4)Exit\n").strip()
+        if operation == "1":
+            analyze_image_main(image_path)
+            enc_func(image_path, main_properties)
+        elif operation == "2":
+            dec_func(image_path)
+        elif operation == "3":
+            analyze_image(image_path)
+        elif operation == "4":
+            print("Exiting the program.")
+            cycle = False
+        else:
+            print("Invalid option.\n")

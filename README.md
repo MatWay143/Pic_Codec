@@ -22,22 +22,22 @@ Based on mentioned details:
    h) Arithmetic
 
 2. Spatial Redundancy
-   a) Prediction
-   b) e = x - x'
-   c) Lossless JPEG
-   d) 2nd order
-   e) 3rd order
-   f) MED
-   g) GAP
-   h) ALCM
-   i) LS-Based Adaptive Predator
-   j) By using Context
-   k) Bias Cancellation
-   l) Error Remapping (1, 2, 3)
-   m) RLE
-   n) JPEG-LS
-   o) Context Quantization
-   p) CALIC
+   +) Prediction
+   a) e = x - x'
+   b) Lossless JPEG
+   c) 2nd order
+   d) 3rd order
+   e) MED
+   f) GAP
+   g) ALCM
+   h) LS-Based Adaptive Predator
+   i) By using Context
+   j) Bias Cancellation
+   k) Error Remapping (1, 2, 3)
+   l) RLE
+   m) JPEG-LS
+   n) Context Quantization
+   o) CALIC
 
 3. Psycho-Visual Redundancy
    a) Quantization

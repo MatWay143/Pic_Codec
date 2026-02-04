@@ -15,32 +15,57 @@ def spatial_predict(img):
     a = img[:, :-1]
     b = img[:-1, :]
     c = img[:-1, :-1]
-    p[1:, 1:] = np.where(c[1:] >= np.maximum(a[1:], b[:, 1:]), np.minimum(a[1:], b[:, 1:]),
-                         np.where(c[1:] <= np.minimum(a[1:], b[:, 1:]), np.maximum(a[1:], b[:, 1:]),
-                                  a[1:] + b[:, 1:] - c[1:]))
+    from numpy import maximum, minimum, where
+    p[1:,1:] = where(c >= maximum(a[1:], b[:,1:]), minimum(a[1:], b[:,1:]),
+                where(c <= minimum(a[1:], b[:,1:]), maximum(a[1:], b[:,1:]), a[1:] + b[:,1:] - c))
     return p
 
-def multicolor_stereo_decode(path_l, path_r, properties):
-    base = os.path.dirname(path_l)
-    E_L = np.load(os.path.join(base, "left_encoded.npz"))['arr_0']
-    E_R = np.load(os.path.join(base, "right_encoded.npz"))['arr_0']
+def bytes_to_bits(b):
+    bits=[]
+    for byte in b:
+        for i in reversed(range(8)):
+            bits.append((byte>>i)&1)
+    return bits
 
-    P_L = spatial_predict(E_L + 0)
-    L_recon = P_L + E_L
+def golomb_rice_decode(bits, shape, k):
+    x = np.zeros(np.prod(shape),dtype=np.int16)
+    i = 0
+    idx = 0
+    while idx < x.size:
+        q = 0
+        while i<len(bits) and bits[i]==1:
+            q+=1
+            i+=1
+        i+=1
+        r = 0
+        for j in range(k):
+            r = (r<<1) | bits[i]
+            i+=1
+        val = (q<<k)|r
+        x[idx]=val
+        idx+=1
+    return x.reshape(shape)
+
+def multicolor_stereo_decode(path_l_encoded, path_r_encoded, shape_L=(None,None,3), shape_R=(None,None,3), k_L=0, k_R=0):
+    base = os.path.dirname(path_l_encoded)
+
+    with open(path_l_encoded,"rb") as f:
+        bits_L = bytes_to_bits(f.read())
+    L_data = golomb_rice_decode(bits_L, shape_L, k_L)
+    P_L = spatial_predict(L_data)
+    L_recon = P_L + L_data
     L_rgb = ycbcr_to_rgb(L_recon)
+    Image.fromarray(L_rgb).save(os.path.join(base,"left_reconstructed_decoded.png"))
 
-    P_R2 = spatial_predict(E_R + 0)
-    R_recon = P_R2 + E_R
+    with open(path_r_encoded,"rb") as f:
+        bits_R = bytes_to_bits(f.read())
+    R_data = golomb_rice_decode(bits_R, shape_R, k_R)
+    P_R2 = spatial_predict(R_data)
+    R_recon = P_R2 + R_data
     R_rgb = ycbcr_to_rgb(R_recon)
-
-    left_path = os.path.join(base, "left_decoded.png")
-    right_path = os.path.join(base, "right_decoded.png")
-
-    Image.fromarray(L_rgb).save(left_path)
-    Image.fromarray(R_rgb).save(right_path)
+    Image.fromarray(R_rgb).save(os.path.join(base,"right_reconstructed_decoded.png"))
 
     return {
-        "Left_Decoded": left_path,
-        "Right_Decoded": right_path,
-        "properties": properties
+        "Left_reconstructed": os.path.join(base,"left_reconstructed_decoded.png"),
+        "Right_reconstructed": os.path.join(base,"right_reconstructed_decoded.png")
     }

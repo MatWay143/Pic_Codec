@@ -1,63 +1,48 @@
-===
-Image Format (png, jpeg, ...)
-===
-Image channels (rgb, b&w, ...)
-===
-Image depth (8bit, 10bit, ...)
-===
-Image size (w\*h)
-===
-Channel Division
-===
-Based on mentioned details:
+Left:
+   Picture Compression
+      Statistical, Coding Redundancy _ Spatial Redundancy _ Spectral Redundancy
 
-1. Statistical, Coding Redundancy
-   a) Entropy
-   b) Self Information
-   c) Distribution
-   d) Probability
-   e) Huffman
-   f) Golomb
-   g) Golomb-Rice
-   h) Arithmetic
+Right: 
+   Motion Vectors + Remained Pixels
+      Statistical, Coding Redundancy _ Spatial Redundancy _ Spectral Redundancy _ Temporal Redundancy
 
-2. Spatial Redundancy
-   +) Prediction
-   a) e = x - x'
-   b) Lossless JPEG
-   c) 2nd order
-   d) 3rd order
-   e) MED
-   f) GAP
-   g) ALCM
-   h) LS-Based Adaptive Predator
-   i) By using Context
-   j) Bias Cancellation
-   k) Error Remapping (1, 2, 3)
-   l) RLE
-   m) JPEG-LS
-   n) Context Quantization
-   o) CALIC
+Left:
+   1. RGB to YCbCr
+   2. Prediction
+      1st, 2nd, 3rd order
+      MED
+      GAP
+      ALCM
+   3. Using Context
+   4. Error Remapping
+   5. Bias Cancellation
+   6. Distribution, Probability
+   7. RLE on Errors
+   8. Statistical
+      Huffman
+      Golomb
+      Golomb-Rice
+      Arithmetic
 
-3. Psycho-Visual Redundancy
-   a) Quantization
-   b) Transform coding (DCT)
-   c) JPEG Standard-Quantization
-   d) JPEG Standard-Entropy coding
-   e) JPEG Standard-Reconstruction
-   f) JPEG Standard-Image Quality Control
+Right:
+   Motion Vectors:
+      1. Block Matching
+      2. Motion Vector 
 
-4. Spectral Redundancy
-   a) YCbCr
-
-5. Temporal Redundancy
-   a) Motion Vector
-   b) Block Matching
-   -) Full Search
-   -) 3 Step Search
-   -) 4 Step Search
-   -) Diamond Search
-   -) Hexagonal Block Search
-   c) MPEG Standard E/D
-   ===
-   Encoder/Decoder
+   Remained Pixels:
+      1. RGB to YCbCr
+      2. Prediction
+         1st, 2nd, 3rd order
+         MED
+         GAP
+         ALCM
+      3. Using Context
+      4. Error Remapping
+      5. Bias Cancellation
+      6. Distribution, Probability
+      7. RLE on Errors
+      8. Statistical
+         Huffman
+         Golomb
+         Golomb-Rice
+         Arithmetic

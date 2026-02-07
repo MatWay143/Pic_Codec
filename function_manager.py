@@ -17,7 +17,7 @@ def func_manager(path1, path2, properties, code):
     elif code==112:
         grayscale_stereo_encode(path1, path2, properties)
     elif code==113:
-        multicolor_stereo_encode(path1, path2, properties)
+        multicolor_stereo_encode(path1, path2)
     elif code==121:
         bnw_mono_encode(path1, properties)
     elif code==122:

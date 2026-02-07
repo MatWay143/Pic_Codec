@@ -1,71 +1,84 @@
-import os
 import numpy as np
-from PIL import Image
+import cv2
+import os
+import struct
 
-def ycbcr_to_rgb(x):
-    y, cb, cr = x[...,0], x[...,1], x[...,2]
-    r = y + 1.402*cr
-    g = y - 0.344136*cb - 0.714136*cr
-    b = y + 1.772*cb
-    return np.clip(np.stack([r,g,b], axis=-1), 0, 255).astype(np.uint8)
+def ycbcr_to_rgb(img):
+    Y = img[:,:,0].astype(np.float32)
+    Cb = img[:,:,1].astype(np.float32)-128
+    Cr = img[:,:,2].astype(np.float32)-128
+    R = Y + 1.402*Cr
+    G = Y - 0.344136*Cb - 0.714136*Cr
+    B = Y + 1.772*Cb
+    return np.clip(np.stack([R,G,B], axis=2), 0, 255).astype(np.uint8)
 
-def spatial_predict(img):
-    h, w, ch = img.shape
-    p = np.zeros_like(img)
-    a = img[:, :-1]
-    b = img[:-1, :]
-    c = img[:-1, :-1]
-    from numpy import maximum, minimum, where
-    p[1:,1:] = where(c >= maximum(a[1:], b[:,1:]), minimum(a[1:], b[:,1:]),
-                where(c <= minimum(a[1:], b[:,1:]), maximum(a[1:], b[:,1:]), a[1:] + b[:,1:] - c))
-    return p
+def undo_remap(residual):
+    return np.where(residual%2==0,residual//2,-(residual+1)//2)
 
-def bytes_to_bits(b):
-    bits=[]
-    for byte in b:
-        for i in reversed(range(8)):
-            bits.append((byte>>i)&1)
-    return bits
+def undo_bias(residual, mean):
+    return residual + int(mean)
 
-def golomb_rice_decode(bits, shape, k):
-    x = np.zeros(np.prod(shape),dtype=np.int16)
-    i = 0
+def huffman_decode(bits, code, shape):
+    inv_code = {v:k for k,v in code.items()}
+    bitstr = ''.join(f'{b:08b}' for b in bits)
+    out = []
+    buffer = ''
+    for b in bitstr:
+        buffer += b
+        if buffer in inv_code:
+            out.append(inv_code[buffer])
+            buffer = ''
+        if len(out) == np.prod(shape):
+            break
+    return np.array(out, dtype=np.int32).reshape(shape)
+
+def block_reconstruct_right(L_ycbcr, mv, bs=4):
+    h,w,_ = L_ycbcr.shape
+    pred = np.zeros_like(L_ycbcr)
     idx = 0
-    while idx < x.size:
-        q = 0
-        while i<len(bits) and bits[i]==1:
-            q+=1
-            i+=1
-        i+=1
-        r = 0
-        for j in range(k):
-            r = (r<<1) | bits[i]
-            i+=1
-        val = (q<<k)|r
-        x[idx]=val
-        idx+=1
-    return x.reshape(shape)
+    for y in range(0,h,bs):
+        for x in range(0,w,bs):
+            bh = min(bs,h-y)
+            bw = min(bs,w-x)
+            dx = mv[idx]
+            pred[y:y+bh, x:x+bw, 0] = L_ycbcr[y:y+bh, x+dx:x+dx+bw, 0]
+            pred[y:y+bh, x:x+bw, 1] = L_ycbcr[y:y+bh, x:x+bw, 1]
+            pred[y:y+bh, x:x+bw, 2] = L_ycbcr[y:y+bh, x:x+bw, 2]
+            idx += 1
+    return pred
 
-def multicolor_stereo_decode(path_l_encoded, path_r_encoded, shape_L=(None,None,3), shape_R=(None,None,3), k_L=0, k_R=0):
-    base = os.path.dirname(path_l_encoded)
+def multicolor_stereo_decode(path_l_encoded, path_r_encoded):
+    folder = os.path.dirname(path_l_encoded)
 
-    with open(path_l_encoded,"rb") as f:
-        bits_L = bytes_to_bits(f.read())
-    L_data = golomb_rice_decode(bits_L, shape_L, k_L)
-    P_L = spatial_predict(L_data)
-    L_recon = P_L + L_data
-    L_rgb = ycbcr_to_rgb(L_recon)
-    Image.fromarray(L_rgb).save(os.path.join(base,"left_reconstructed_decoded.png"))
+    # Left
+    with open(path_l_encoded,'rb') as f:
+        h,w,c,pad = struct.unpack('IIIb', f.read(13))
+        bits_len = struct.unpack('I', f.read(4))[0]
+        bitsL = f.read(bits_len)
+        code_len = struct.unpack('I', f.read(4))[0]
+        code_raw = f.read(code_len)
+        codeL = {i: code_raw[i:i+8].decode() for i in range(0, code_len,8)}
+    L_ycbcr = huffman_decode(bitsL, codeL, (h,w,c))
+    L_ycbcr = undo_bias(undo_remap(L_ycbcr), 0).astype(np.uint8)
 
-    with open(path_r_encoded,"rb") as f:
-        bits_R = bytes_to_bits(f.read())
-    R_data = golomb_rice_decode(bits_R, shape_R, k_R)
-    P_R2 = spatial_predict(R_data)
-    R_recon = P_R2 + R_data
-    R_rgb = ycbcr_to_rgb(R_recon)
-    Image.fromarray(R_rgb).save(os.path.join(base,"right_reconstructed_decoded.png"))
+    # Right
+    with open(path_r_encoded,'rb') as f:
+        hR,wR,cR,padR = struct.unpack('IIIb', f.read(13))
+        mv_len = struct.unpack('I', f.read(4))[0]
+        mv = np.frombuffer(f.read(mv_len*2), dtype=np.int16)
+        bits_lenR = struct.unpack('I', f.read(4))[0]
+        bitsR = f.read(bits_lenR)
+        code_lenR = struct.unpack('I', f.read(4))[0]
+        code_rawR = f.read(code_lenR)
+        codeR = {i: code_rawR[i:i+8].decode() for i in range(0, code_lenR,8)}
 
-    return {
-        "Left_reconstructed": os.path.join(base,"left_reconstructed_decoded.png"),
-        "Right_reconstructed": os.path.join(base,"right_reconstructed_decoded.png")
-    }
+    R_pred = block_reconstruct_right(L_ycbcr, mv)
+    residualR = huffman_decode(bitsR, codeR, (hR,wR,1))[:,:,0]
+    residualR = undo_bias(undo_remap(residualR),0).astype(np.uint8)
+    # Remained Pixels جایگذاری
+    mask = (R_pred[:,:,0] != residualR)
+    R_ycbcr = R_pred.copy()
+    R_ycbcr[:,:,0][mask] = residualR[mask]
+
+    cv2.imwrite(os.path.join(folder,'left_reconstructed.png'), ycbcr_to_rgb(L_ycbcr))
+    cv2.imwrite(os.path.join(folder,'right_reconstructed.png'), ycbcr_to_rgb(R_ycbcr))
